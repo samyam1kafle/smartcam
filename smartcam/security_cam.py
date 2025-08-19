@@ -97,6 +97,12 @@ def parse_args():
         default=8.0,
         help="Process at most this many FPS (reduces CPU)",
     )
+    p.add_argument(
+    "--discord-webhook",
+    type=str,
+    default=os.getenv("DISCORD_WEBHOOK_URL", ""),
+    help="Discord webhook URL (sends snapshot images)"
+    )
     return p.parse_args()
 
 
@@ -147,6 +153,26 @@ def send_webhook(url: str, text: str):
     except Exception as e:
         print(f"[warn] webhook failed: {e}")
 
+def send_discord(webhook_url: str, text: str, image_path: str | None = None):
+    """Post a message (and optional image) to Discord via webhook."""
+    if not webhook_url:
+        return
+    try:
+        if image_path and os.path.exists(image_path):
+            with open(image_path, "rb") as f:
+                files = {"file": (os.path.basename(image_path), f, "image/jpeg")}
+                data = {"content": text, "username": "SmartCam"}
+                resp = requests.post(webhook_url, data=data, files=files, timeout=10)
+        else:
+            resp = requests.post(
+                webhook_url,
+                json={"content": text, "username": "SmartCam"},
+                timeout=5
+            )
+        if resp.status_code >= 300:
+            print(f"[warn] discord failed: {resp.status_code} {resp.text[:200]}")
+    except Exception as e:
+        print(f"[warn] discord exception: {e}")
 
 def send_telegram(token: str, chat_id: str, text: str, image_path: str | None = None):
     if not token or not chat_id:
@@ -260,6 +286,8 @@ def main():
                 msg = f"Motion detected at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                 send_webhook(args.webhook_url, msg)
                 send_telegram(args.telegram_token, args.telegram_chat_id, msg, image_path=snapshot)
+                send_discord(args.discord_webhook, msg, image_path=snapshot)
+
 
                 # Reset so we don't immediately retrigger
                 motion_window.clear()
